@@ -1,5 +1,6 @@
 const config = require('./utils/config')
 const express = require('express')
+require('express-async-errors') // this allows async error handling without using a try/catch block and calling next(error) explicitly.
 const app = express()
 const cors = require('cors')
 const notesRouter = require('./controllers/notes')

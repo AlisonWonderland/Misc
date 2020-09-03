@@ -1,22 +1,18 @@
 const notesRouter = require('express').Router()
 const Note = require('../models/note')
 
-notesRouter.get('/info', (req, res) => {
-    Note.find({})
-        .then(notes => {
-            res.send(`Notes has ${notes.length} notes in it.<br>${new Date()}`)
-        })
+notesRouter.get('/info', async (req, res) => {
+    const notes = await Note.find({})
+    res.send(`Notes has ${notes.length} notes in it.<br>${new Date()}`)
 })
 
-notesRouter.get('/', (req, res) => {
-    Note.find({})
-        .then(notes => {
-            res.json(notes)
-        })
+notesRouter.get('/', async (req, res) => {
+    const notes = await Note.find({})
+    res.json(notes)
 })
 
-notesRouter.post('/', (request, response, next) => {
-    const body = request.body
+notesRouter.post('/', async (req, res) => {
+    const body = req.body
 
     const note = new Note({
         content: body.content,
@@ -24,55 +20,48 @@ notesRouter.post('/', (request, response, next) => {
         date: new Date(),
     })
 
-    note.save()
-        .then(savedNote => {
-            response.json(savedNote)
-        })
-        .catch(error => next(error))
+    const savedNote = await note.save()
+    res.json(savedNote)
 })
 
-notesRouter.get('/:id', (req, res, next) => {
-    Note.findById(req.params.id)
-        .then(note => {
-            if (note) {
-                res.json(note)
-            } else {
-                res.status(404).end()
-            }
-        })
-        .catch(error => next(error))
+notesRouter.get('/:id', async (req, res) => {
+    const note = await Note.findById(req.params.id)
+
+    if (note) {
+        res.json(note)
+    }
+    else {
+        res.status(404).end()
+    }
 })
 
-notesRouter.put('/:id', (req, res, next) => {
+notesRouter.put('/:id', async (req, res) => {
     const id = req.params.id
     const note = {
         content: req.body.content,
         important: req.body.important,
     }
 
-    Note.findByIdAndUpdate(id, note, { new: true })
-        .then(updatedNote => {
-            if(updatedNote) {
-                res.json(updatedNote)
-            } else {
-                res.status(404).end()
-            }
-        })
-        .catch(error => next(error))
+    const updatedNote = await Note.findByIdAndUpdate(id, note, { new: true })
+
+    if(updatedNote) {
+        res.json(updatedNote)
+    }
+    else {
+        res.status(404).end()
+    }
 })
 
-notesRouter.delete('/:id', (req, res, next) => {
+notesRouter.delete('/:id', async (req, res) => {
     const id = req.params.id
+    const deletedNote = await Note.findByIdAndDelete(id)
 
-    Note.findByIdAndDelete(id)
-        .then(deletedNote => {
-            if(deletedNote) {
-                res.status(204).end()
-            } else {
-                res.status(404).send({ error: 'id doesn\'t exist' })
-            }
-        })
-        .catch(error => next(error))
+    if(deletedNote) {
+        res.status(204).end()
+    }
+    else {
+        res.status(404).send({ error: 'id doesn\'t exist' })
+    }
 })
 
 module.exports = notesRouter
