@@ -1,118 +1,272 @@
 const mongoose = require('mongoose')
 const supertest = require('supertest')
+const bcrypt = require('bcrypt')
 const helper = require('./test_helper')
 const app = require('../app')
 const api = supertest(app)
 
 const Note = require('../models/note')
+const User = require('../models/user')
 
+// This will be executed after a single test is done
 beforeEach(async () => {
     await Note.deleteMany({})
+    console.log('cleared all notes from test database')
 
-    let noteObject = new Note(helper.initialNotes[0])
-    await noteObject.save()
+    const noteObjects = helper.initialNotes
+        .map(note => new Note(note))
+    const promiseArray = noteObjects.map(note => note.save())
+    await Promise.all(promiseArray)
 
-    noteObject = new Note(helper.initialNotes[1])
-    await noteObject.save()
+    console.log('done initializing test database')
 })
 
-test('Notes are returned as json', async () => {
-    await api
-        .get('/api/notes')
-        .expect(200)
-        .expect('Content-Type', /application\/json/)
+describe('when the notes database has been initialized', () => {
+    test('Notes are returned as json', async () => {
+        await api
+            .get('/api/notes')
+            .expect(200)
+            .expect('Content-Type', /application\/json/)
+    })
+
+    test('the first note is about HTTP methods', async () => {
+        const response = await api.get('/api/notes')
+        expect(response.body[0].content).toBe('HTML is easy')
+    })
+
+    test('retrieves all the notes', async () => {
+        const response = await api.get('/api/notes')
+        expect(response.body).toHaveLength(helper.initialNotes.length)
+    })
+
+    test('find a note within the returned notes.', async () => {
+        const response = await api.get('/api/notes')
+
+        const contents = response.body.map(r => r.content)
+        expect(contents).toContain(
+            'Browser can execute only Javascript'
+        )
+    })
 })
 
-test('retrieves all the notes', async () => {
-    const response = await api.get('/api/notes')
-    expect(response.body).toHaveLength(helper.initialNotes.length)
+describe('getting a specific note', () => {
+    test('retrieve a note by valid id.', async () => {
+        const notes = await helper.notesInDb()
+        const testID = notes[1].id
+
+        const getIDResponse = await api
+            .get(`/api/notes/${testID}`)
+            .expect(200)
+            .expect('Content-Type', /application\/json/)
+
+        expect(getIDResponse.body).toEqual(JSON.parse(JSON.stringify(notes[1])))
+    })
+
+    test('api returns 404 status code if note doesn\'t exist anymore', async () => {
+        const nonExistentID = await helper.nonExistingId()
+
+        await api
+            .get(`/api/notes/${nonExistentID}`)
+            .expect(404)
+    })
+
+    test('api returns 400 status code if id is invalid', async () => {
+        const invalidID = '5a3d5da59070081a82a3445'
+
+        await api
+            .get(`/api/notes/${invalidID}`)
+            .expect(400)
+    })
+
 })
 
-// Uses the id of the second element in initialNotes
-test('retrieve a note by id. content should be \'Browser can execute only Javascript\'', async () => {
-    const response = await api.get('/api/notes')
-    const notes = response.body
+describe('updating a note', () => {
+    test('update note with valid id is succesful', async () => {
+        const updatedNote = {
+            content: 'This is an updated note',
+            important: true
+        }
 
-    const testID = notes[1].id
+        const notes = await helper.notesInDb()
+        const testID = notes[1].id
 
-    const getIDResponse = await api.get(`/api/notes/${testID}`)
-    expect(getIDResponse.body.content).toBe(helper.initialNotes[1].content)
+        await api
+            .put(`/api/notes/${testID}`)
+            .send(updatedNote)
+            .expect(200)
+            .expect('Content-Type', /json/)
+
+        const notesAtEnd = await helper.notesInDb()
+        const contents = notesAtEnd.map(note => note.content)
+
+        expect(contents).toContain('This is an updated note')
+    })
+
+    test('update note with nonexisting id returns 404', async () => {
+        const updatedNote = {
+            content: 'This is an updated note',
+            important: true
+        }
+
+        const nonExistentID = await helper.nonExistingId()
+
+        await api
+            .put(`/api/notes/${nonExistentID}`)
+            .send(updatedNote)
+            .expect(404)
+    })
+
+    test('update note with invalid id returns 400', async () => {
+        const updatedNote = {
+            content: 'This is an updated note',
+            important: true
+        }
+
+        const invalidID = '5a3d5da59070081a82a3445'
+
+        await api
+            .put(`/api/notes/${invalidID}`)
+            .send(updatedNote)
+            .expect(400)
+    })
 })
 
-test('update note by id is succesful', async () => {
-    const updatedNote = {
-        content: 'This is an updated note',
-        important: true
-    }
+describe('adding a new note', () => {
+    test('adding a valid note is successful through the api', async () => {
+        const testNote = {
+            content: 'This is a test note',
+            date: new Date(),
+            important: true
+        }
 
-    let response = await api.get('/api/notes')
-    const notes = response.body
-    const testID = notes[1].id
+        await api
+            .post('/api/notes/')
+            .send(testNote)
+            .expect(200)
+            .expect('Content-Type', /json/)
 
-    await api
-        .put(`/api/notes/${testID}`)
-        .send(updatedNote)
-        .expect(200)
-        .expect('Content-Type', /json/)
+        const notesAfterPost = await helper.notesInDb()
+        const contents = notesAfterPost.map(note => note.content)
 
-    response = await api.get(`/api/notes/${testID}`)
+        expect(contents).toContain('This is a test note')
+        expect(notesAfterPost).toHaveLength(helper.initialNotes.length + 1)
+    })
 
-    expect(response.body.content).toBe('This is an updated note')
+    test('adding a note without content is unsuccessful and return 400 status code', async () => {
+        const noContentNote = {
+            date: new Date(),
+            important: false
+        }
+
+        await api
+            .post('/api/notes')
+            .send(noContentNote)
+            .expect(400)
+
+        const notesAfterPost = await helper.notesInDb()
+        expect(notesAfterPost).toHaveLength(helper.initialNotes.length)
+    })
+
+    test('adding a note without a date is unsuccessful and return 400 status code', async () => {
+        const noContentNote = {
+            content: '',
+            important: false
+        }
+
+        await api
+            .post('/api/notes')
+            .send(noContentNote)
+            .expect(400)
+
+        const notesAfterPost = await helper.notesInDb()
+        expect(notesAfterPost).toHaveLength(helper.initialNotes.length)
+    })
 })
 
-// A note has not been added up to this point. So there are only 2 notes.
-test('delete note by id is successful', async () => {
-    let response = await api.get('/api/notes')
-    const notes = response.body
-    const testID = notes[1].id
+describe('deleting notes', () => {
+    test('delete note with valid id is successful', async () => {
+        const notes = await helper.notesInDb()
+        const testID = notes[1].id
 
-    await api
-        .delete(`/api/notes/${testID}`)
-        .expect(204)
+        await api
+            .delete(`/api/notes/${testID}`)
+            .expect(204)
 
-    response = await api.get('/api/notes')
-    expect(response.body.length).toBe(helper.initialNotes.length - 1)
+        const notesAfterDelete = await helper.notesInDb()
+        expect(notesAfterDelete).toHaveLength(helper.initialNotes.length - 1)
+    })
+
+    test('delete note with nonexisting id returns 404', async () => {
+        const nonExistingId = await helper.nonExistingId()
+
+        await api
+            .delete(`/api/notes/${nonExistingId}`)
+            .expect(404)
+    })
+
+    test('delete note with invalid id returns 400', async () => {
+        const invalidID = '5a3d5da59070081a82a3445'
+
+        await api
+            .delete(`/api/notes/${invalidID}`)
+            .expect(400)
+    })
 })
 
-test('the first note is about HTTP methods', async () => {
-    const response = await api.get('/api/notes')
-    expect(response.body[0].content).toBe('HTML is easy')
-})
+// User Tests
 
-test('adding a note is successful through the api', async () => {
-    const testNote = {
-        content: 'This is a test note',
-        date: new Date(),
-        important: true
-    }
+describe('when there is initially one user in db', () => {
+    beforeEach(async () => {
+        await User.deleteMany({})
 
-    await api
-        .post('/api/notes/')
-        .send(testNote)
-        .expect(200)
-        .expect('Content-Type', /json/)
+        const passwordHash = await bcrypt.hash('sekret', 10)
+        const user = new User({ username: 'root', passwordHash })
 
-    const notesAfterPost = await helper.notesInDb()
-    const contents = notesAfterPost.map(note => note.content)
+        await user.save()
+    })
 
-    expect(contents).toContain('This is a test note')
-    expect(notesAfterPost).toHaveLength(helper.initialNotes.length + 1)
-})
+    test('creation succeeds with a fresh username', async () => {
+        const usersAtStart = await helper.usersInDb()
 
-test('adding a note without content is unsuccessful', async () => {
-    const noContentNote = {
-        content: '',
-        date: new Date(),
-        important: false
-    }
+        const newUser = {
+            username: 'mluukkai',
+            name: 'Matti Luukkainen',
+            password: 'salainen',
+        }
 
-    await api
-        .post('/api/notes')
-        .send(noContentNote)
-        .expect(400)
+        await api
+            .post('/api/users')
+            .send(newUser)
+            .expect(200)
+            .expect('Content-Type', /application\/json/)
 
-    const notesAfterPost = await helper.notesInDb()
-    expect(notesAfterPost).toHaveLength(helper.initialNotes.length)
+        const usersAtEnd = await helper.usersInDb()
+        expect(usersAtEnd).toHaveLength(usersAtStart.length + 1)
+
+        const usernames = usersAtEnd.map(u => u.username)
+        expect(usernames).toContain(newUser.username)
+    })
+
+    test('creation fails with proper statuscode and message if username already taken', async () => {
+        const usersAtStart = await helper.usersInDb()
+
+        const newUser = {
+            username: 'root',
+            name: 'Superuser',
+            password: 'salainen',
+        }
+
+        const result = await api
+            .post('/api/users')
+            .send(newUser)
+            .expect(400)
+            .expect('Content-Type', /application\/json/)
+
+        expect(result.body.error).toContain('`username` to be unique')
+
+        const usersAtEnd = await helper.usersInDb()
+        expect(usersAtEnd).toHaveLength(usersAtStart.length)
+    })
 })
 
 afterAll(async () => {
