@@ -9,6 +9,7 @@
     "test": "cross-env NODE_ENV=test jest --verbose --runInBand",
     "build:ui": "rm -rf build && cd ../../moocPart2/collections-n-forms && npm run build --prod && cp -r build ../../moocPart3/notesServer/",
     "deploy": "git push heroku master",
+    "deploy:half": "git add . && git commit -m uibuild && npm run deploy",
     "deploy:full": "npm run build:ui && git add . && git commit -m uibuild && npm run deploy",
     "logs:prod": "heroku logs --tail",
     "lint": "eslint ."
@@ -22,6 +23,7 @@
     "dotenv": "^8.2.0",
     "express": "^4.17.1",
     "express-async-errors": "^3.1.1",
+    "jsonwebtoken": "^8.5.1",
     "mongoose": "^5.10.0",
     "mongoose-unique-validator": "^2.0.3"
   },
